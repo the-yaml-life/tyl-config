@@ -1,4 +1,4 @@
-use tyl_config::{ConfigManager, PostgresConfig, RedisConfig, ConfigPlugin};
+use tyl_config::{ConfigManager, PostgresConfig, RedisConfig};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== TYL Config YAML Generation ===\n");

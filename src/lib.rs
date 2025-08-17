@@ -330,7 +330,16 @@ impl ConfigManagerBuilder {
         Ok(self)
     }
     
-    pub fn build(self) -> ConfigManager {
+    pub fn build(mut self) -> ConfigManager {
+        // Apply environment variables after loading from YAML/defaults
+        if let Some(ref mut postgres) = self.postgres {
+            let _ = postgres.merge_env(); // Ignore errors in build
+        }
+        
+        if let Some(ref mut redis) = self.redis {
+            let _ = redis.merge_env(); // Ignore errors in build
+        }
+        
         ConfigManager {
             postgres: self.postgres,
             redis: self.redis,
