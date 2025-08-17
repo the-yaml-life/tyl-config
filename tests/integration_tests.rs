@@ -113,6 +113,15 @@ fn test_configuration_serialization() {
 fn test_missing_values_failure_integration() {
     // Integration test showing that plugins fail when required values are missing
     
+    // Clean up any environment variables that could interfere
+    std::env::remove_var("TYL_POSTGRES_PASSWORD");
+    std::env::remove_var("PGPASSWORD");
+    std::env::remove_var("TYL_DATABASE_URL");
+    std::env::remove_var("DATABASE_URL");
+    std::env::remove_var("POSTGRES_URL");
+    std::env::remove_var("TYL_REDIS_HOST");
+    std::env::remove_var("REDIS_HOST");
+    
     // Create configs with missing values
     let mut postgres_no_password = PostgresConfig::default();
     postgres_no_password.password = "".to_string();

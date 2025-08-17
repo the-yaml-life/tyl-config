@@ -67,13 +67,6 @@
 //!         }
 //!         Ok(())
 //!     }
-//!     fn to_yaml_value(&self) -> tyl_config::ConfigResult<serde_yaml::Value> {
-//!         serde_yaml::to_value(self)
-//!             .map_err(|e| TylError::serialization(format!("Failed to serialize: {e}")))
-//!     }
-//!     fn from_yaml(&self, _yaml_path: &str) -> tyl_config::ConfigResult<Self> {
-//!         Ok(Self::default())
-//!     }
 //! }
 //!
 //! impl Default for MyServiceConfig {
@@ -108,12 +101,6 @@ pub trait ConfigPlugin: std::fmt::Debug + Send + Sync {
     
     /// Merge with values from environment variables
     fn merge_env(&mut self) -> ConfigResult<()>;
-    
-    /// Generate YAML configuration with current values
-    fn to_yaml_value(&self) -> ConfigResult<serde_yaml::Value>;
-    
-    /// Load configuration from YAML file (lowest priority)
-    fn from_yaml(&self, yaml_path: &str) -> ConfigResult<Self> where Self: Sized;
 }
 
 /// Configuration manager that holds all service configurations
@@ -174,14 +161,16 @@ impl ConfigManager {
         if let Some(postgres) = &self.postgres {
             config_map.insert(
                 serde_yaml::Value::String(postgres.name().to_string()),
-                postgres.to_yaml_value()?
+                serde_yaml::to_value(postgres)
+                    .map_err(|e| TylError::serialization(format!("Failed to serialize postgres config: {}", e)))?
             );
         }
         
         if let Some(redis) = &self.redis {
             config_map.insert(
                 serde_yaml::Value::String(redis.name().to_string()),
-                redis.to_yaml_value()?
+                serde_yaml::to_value(redis)
+                    .map_err(|e| TylError::serialization(format!("Failed to serialize redis config: {}", e)))?
             );
         }
         
@@ -215,14 +204,18 @@ impl ConfigManager {
         
         if let Some(yaml_map) = yaml_value.as_mapping() {
             // Load postgres config if present
-            if yaml_map.contains_key(&serde_yaml::Value::String("postgres".to_string())) {
-                let postgres = PostgresConfig::default().from_yaml(yaml_path)?;
+            if let Some(postgres_section) = yaml_map.get(&serde_yaml::Value::String("postgres".to_string())) {
+                let mut postgres: PostgresConfig = serde_yaml::from_value(postgres_section.clone())
+                    .map_err(|e| TylError::configuration(format!("Failed to parse postgres config: {}", e)))?;
+                postgres.merge_env()?;
                 builder = builder.with_postgres(postgres);
             }
             
             // Load redis config if present  
-            if yaml_map.contains_key(&serde_yaml::Value::String("redis".to_string())) {
-                let redis = RedisConfig::default().from_yaml(yaml_path)?;
+            if let Some(redis_section) = yaml_map.get(&serde_yaml::Value::String("redis".to_string())) {
+                let mut redis: RedisConfig = serde_yaml::from_value(redis_section.clone())
+                    .map_err(|e| TylError::configuration(format!("Failed to parse redis config: {}", e)))?;
+                redis.merge_env()?;
                 builder = builder.with_redis(redis);
             }
         }
@@ -271,14 +264,20 @@ impl ConfigManagerBuilder {
             
             if let Some(yaml_map) = yaml_value.as_mapping() {
                 // Load postgres config if present in YAML
-                if yaml_map.contains_key(&serde_yaml::Value::String("postgres".to_string())) {
-                    let postgres = PostgresConfig::default().from_yaml(yaml_path)?;
+                if let Some(postgres_section) = yaml_map.get(&serde_yaml::Value::String("postgres".to_string())) {
+                    let mut postgres: PostgresConfig = serde_yaml::from_value(postgres_section.clone())
+                        .map_err(|e| TylError::configuration(format!("Failed to parse postgres config: {}", e)))?;
+                    // Merge environment variables after loading from YAML
+                    postgres.merge_env()?;
                     self.postgres = Some(postgres);
                 }
                 
                 // Load redis config if present in YAML
-                if yaml_map.contains_key(&serde_yaml::Value::String("redis".to_string())) {
-                    let redis = RedisConfig::default().from_yaml(yaml_path)?;
+                if let Some(redis_section) = yaml_map.get(&serde_yaml::Value::String("redis".to_string())) {
+                    let mut redis: RedisConfig = serde_yaml::from_value(redis_section.clone())
+                        .map_err(|e| TylError::configuration(format!("Failed to parse redis config: {}", e)))?;
+                    // Merge environment variables after loading from YAML
+                    redis.merge_env()?;
                     self.redis = Some(redis);
                 }
             }
@@ -288,16 +287,7 @@ impl ConfigManagerBuilder {
         Ok(self)
     }
     
-    pub fn build(mut self) -> ConfigManager {
-        // Apply environment variables after loading from YAML/defaults
-        if let Some(ref mut postgres) = self.postgres {
-            let _ = postgres.merge_env(); // Ignore errors in build
-        }
-        
-        if let Some(ref mut redis) = self.redis {
-            let _ = redis.merge_env(); // Ignore errors in build
-        }
-        
+    pub fn build(self) -> ConfigManager {
         ConfigManager {
             postgres: self.postgres,
             redis: self.redis,
@@ -452,32 +442,6 @@ impl ConfigPlugin for PostgresConfig {
         Ok(())
     }
     
-    fn to_yaml_value(&self) -> ConfigResult<serde_yaml::Value> {
-        serde_yaml::to_value(self)
-            .map_err(|e| TylError::serialization(format!("Failed to serialize PostgresConfig: {}", e)))
-    }
-    
-    fn from_yaml(&self, yaml_path: &str) -> ConfigResult<Self> {
-        let yaml_content = std::fs::read_to_string(yaml_path)
-            .map_err(|e| TylError::configuration(format!("Failed to read config file: {}", e)))?;
-        
-        let yaml_value: serde_yaml::Value = serde_yaml::from_str(&yaml_content)
-            .map_err(|e| TylError::configuration(format!("Failed to parse YAML: {}", e)))?;
-        
-        if let Some(postgres_section) = yaml_value.get("postgres") {
-            let mut config: PostgresConfig = serde_yaml::from_value(postgres_section.clone())
-                .map_err(|e| TylError::configuration(format!("Failed to parse postgres config: {}", e)))?;
-            
-            // After loading from YAML, merge with environment variables (higher priority)
-            config.merge_env()?;
-            Ok(config)
-        } else {
-            // No postgres section in YAML, use defaults + env vars
-            let mut config = Self::default();
-            config.merge_env()?;
-            Ok(config)
-        }
-    }
 }
 
 /// Redis configuration with sensible defaults
@@ -600,32 +564,6 @@ impl ConfigPlugin for RedisConfig {
         Ok(())
     }
     
-    fn to_yaml_value(&self) -> ConfigResult<serde_yaml::Value> {
-        serde_yaml::to_value(self)
-            .map_err(|e| TylError::serialization(format!("Failed to serialize RedisConfig: {}", e)))
-    }
-    
-    fn from_yaml(&self, yaml_path: &str) -> ConfigResult<Self> {
-        let yaml_content = std::fs::read_to_string(yaml_path)
-            .map_err(|e| TylError::configuration(format!("Failed to read config file: {}", e)))?;
-        
-        let yaml_value: serde_yaml::Value = serde_yaml::from_str(&yaml_content)
-            .map_err(|e| TylError::configuration(format!("Failed to parse YAML: {}", e)))?;
-        
-        if let Some(redis_section) = yaml_value.get("redis") {
-            let mut config: RedisConfig = serde_yaml::from_value(redis_section.clone())
-                .map_err(|e| TylError::configuration(format!("Failed to parse redis config: {}", e)))?;
-            
-            // After loading from YAML, merge with environment variables (higher priority)
-            config.merge_env()?;
-            Ok(config)
-        } else {
-            // No redis section in YAML, use defaults + env vars
-            let mut config = Self::default();
-            config.merge_env()?;
-            Ok(config)
-        }
-    }
 }
 
 // Utility functions for configuration loading
@@ -758,6 +696,11 @@ mod tests {
     #[test]
     fn test_config_manager_validation_propagation() {
         // Test that ConfigManager propagates validation errors
+        
+        // Clean up any environment variables that could interfere
+        std::env::remove_var("TYL_POSTGRES_HOST");
+        std::env::remove_var("PGHOST");
+        
         let mut invalid_postgres = PostgresConfig::default();
         invalid_postgres.host = "".to_string();
         
@@ -791,6 +734,13 @@ mod tests {
     #[test]
     fn test_missing_required_values_cause_failures() {
         // Test that a plugin fails validation when required values are missing
+        
+        // Clean up any environment variables that could interfere
+        std::env::remove_var("TYL_POSTGRES_PASSWORD");
+        std::env::remove_var("PGPASSWORD");
+        std::env::remove_var("TYL_DATABASE_URL");
+        std::env::remove_var("DATABASE_URL");
+        std::env::remove_var("POSTGRES_URL");
         
         // Create config with missing password (no URL fallback)
         let mut config = PostgresConfig::default();
@@ -938,13 +888,6 @@ mod tests {
                     self.api_key = key;
                 }
                 Ok(())
-            }
-            fn to_yaml_value(&self) -> ConfigResult<serde_yaml::Value> {
-                serde_yaml::to_value(self)
-                    .map_err(|e| TylError::serialization(format!("Failed to serialize: {}", e)))
-            }
-            fn from_yaml(&self, _yaml_path: &str) -> ConfigResult<Self> {
-                Ok(Self::default())
             }
         }
         
