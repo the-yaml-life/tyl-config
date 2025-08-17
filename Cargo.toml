@@ -13,11 +13,13 @@ keywords = ["config", "microservices", "hexagonal-architecture", "rust", "tyl-fr
 categories = ["development-tools", "rust-patterns", "config"]
 
 [dependencies]
-# Common TYL dependencies - adjust as needed
+# TYL Framework dependencies (local for development)
+tyl-errors = { git = "https://github.com/the-yaml-life/tyl-errors" }
+
+# Common dependencies
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
-thiserror = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
 
 # Add module-specific dependencies here
