@@ -36,6 +36,7 @@
 //!
 //! ```rust
 //! use tyl_config::{ConfigPlugin, ConfigManager};
+//! use tyl_errors::TylError;
 //!
 //! #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 //! struct MyServiceConfig {
@@ -48,7 +49,7 @@
 //!     fn env_prefix(&self) -> &'static str { "MY_SERVICE" }
 //!     fn validate(&self) -> tyl_config::ConfigResult<()> {
 //!         if self.api_key.is_empty() {
-//!             return Err(tyl_config::ConfigError::validation("api_key", "cannot be empty"));
+//!             return Err(TylError::validation("api_key", "cannot be empty"));
 //!         }
 //!         Ok(())
 //!     }
@@ -68,7 +69,7 @@
 //!     }
 //!     fn to_yaml_value(&self) -> tyl_config::ConfigResult<serde_yaml::Value> {
 //!         serde_yaml::to_value(self)
-//!             .map_err(|e| tyl_config::ConfigError::serialization(format!("Failed to serialize: {}", e)))
+//!             .map_err(|e| TylError::serialization(format!("Failed to serialize: {e}")))
 //!     }
 //!     fn from_yaml(&self, _yaml_path: &str) -> tyl_config::ConfigResult<Self> {
 //!         Ok(Self::default())
@@ -86,53 +87,10 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
+use tyl_errors::{TylError, TylResult};
 
-/// Result type for config operations
-pub type ConfigResult<T> = Result<T, ConfigError>;
-
-/// Errors that can occur during configuration operations
-#[derive(Debug, Error)]
-pub enum ConfigError {
-    #[error("Configuration validation error: {field}: {message}")]
-    Validation { field: String, message: String },
-    
-    #[error("Configuration loading error: {message}")]
-    Loading { message: String },
-    
-    #[error("Environment variable error: {message}")]
-    Environment { message: String },
-    
-    #[error("Serialization error: {message}")]
-    Serialization { message: String },
-}
-
-impl ConfigError {
-    pub fn validation<F: Into<String>, M: Into<String>>(field: F, message: M) -> Self {
-        Self::Validation {
-            field: field.into(),
-            message: message.into(),
-        }
-    }
-    
-    pub fn loading<M: Into<String>>(message: M) -> Self {
-        Self::Loading {
-            message: message.into(),
-        }
-    }
-    
-    pub fn environment<M: Into<String>>(message: M) -> Self {
-        Self::Environment {
-            message: message.into(),
-        }
-    }
-    
-    pub fn serialization<M: Into<String>>(message: M) -> Self {
-        Self::Serialization {
-            message: message.into(),
-        }
-    }
-}
+/// Result type for config operations using TYL unified error handling
+pub type ConfigResult<T> = TylResult<T>;
 
 /// Port (Interface) - Configuration plugin contract
 pub trait ConfigPlugin: std::fmt::Debug + Send + Sync {
@@ -228,7 +186,7 @@ impl ConfigManager {
         }
         
         let config_yaml = serde_yaml::to_string(&serde_yaml::Value::Mapping(config_map))
-            .map_err(|e| ConfigError::serialization(format!("Failed to serialize YAML: {}", e)))?;
+            .map_err(|e| TylError::serialization(format!("Failed to serialize YAML: {}", e)))?;
         
         yaml_content.push_str(&config_yaml);
         
@@ -240,7 +198,7 @@ impl ConfigManager {
         yaml_content.push_str("#   url: redis://password@host:port/database\n");
         
         std::fs::write(output_path, yaml_content)
-            .map_err(|e| ConfigError::loading(format!("Failed to write config file: {}", e)))?;
+            .map_err(|e| TylError::configuration(format!("Failed to write config file: {}", e)))?;
         
         Ok(())
     }
@@ -248,10 +206,10 @@ impl ConfigManager {
     /// Load configurations from YAML file (lowest priority, before defaults)
     pub fn from_yaml_file(yaml_path: &str) -> ConfigResult<Self> {
         let yaml_content = std::fs::read_to_string(yaml_path)
-            .map_err(|e| ConfigError::loading(format!("Failed to read config file {}: {}", yaml_path, e)))?;
+            .map_err(|e| TylError::configuration(format!("Failed to read config file {}: {}", yaml_path, e)))?;
         
         let yaml_value: serde_yaml::Value = serde_yaml::from_str(&yaml_content)
-            .map_err(|e| ConfigError::loading(format!("Failed to parse YAML: {}", e)))?;
+            .map_err(|e| TylError::configuration(format!("Failed to parse YAML: {}", e)))?;
         
         let mut builder = ConfigManagerBuilder::new();
         
@@ -306,10 +264,10 @@ impl ConfigManagerBuilder {
         // Try to read the YAML file
         if std::path::Path::new(yaml_path).exists() {
             let yaml_content = std::fs::read_to_string(yaml_path)
-                .map_err(|e| ConfigError::loading(format!("Failed to read config file: {}", e)))?;
+                .map_err(|e| TylError::configuration(format!("Failed to read config file: {}", e)))?;
             
             let yaml_value: serde_yaml::Value = serde_yaml::from_str(&yaml_content)
-                .map_err(|e| ConfigError::loading(format!("Failed to parse YAML: {}", e)))?;
+                .map_err(|e| TylError::configuration(format!("Failed to parse YAML: {}", e)))?;
             
             if let Some(yaml_map) = yaml_value.as_mapping() {
                 // Load postgres config if present in YAML
@@ -401,26 +359,26 @@ impl ConfigPlugin for PostgresConfig {
         // If we have a URL, we're more lenient with component validation
         if self.url.is_some() {
             if self.pool_size == 0 {
-                return Err(ConfigError::validation("pool_size", "must be greater than 0"));
+                return Err(TylError::validation("pool_size", "must be greater than 0"));
             }
             return Ok(());
         }
         
         // Without URL, we need all components to be valid
         if self.host.is_empty() {
-            return Err(ConfigError::validation("host", "cannot be empty"));
+            return Err(TylError::validation("host", "cannot be empty"));
         }
         if self.database.is_empty() {
-            return Err(ConfigError::validation("database", "cannot be empty"));
+            return Err(TylError::validation("database", "cannot be empty"));
         }
         if self.username.is_empty() {
-            return Err(ConfigError::validation("username", "cannot be empty"));
+            return Err(TylError::validation("username", "cannot be empty"));
         }
         if self.password.is_empty() {
-            return Err(ConfigError::validation("password", "cannot be empty (required when not using DATABASE_URL)"));
+            return Err(TylError::validation("password", "cannot be empty (required when not using DATABASE_URL)"));
         }
         if self.pool_size == 0 {
-            return Err(ConfigError::validation("pool_size", "must be greater than 0"));
+            return Err(TylError::validation("pool_size", "must be greater than 0"));
         }
         Ok(())
     }
@@ -455,9 +413,9 @@ impl ConfigPlugin for PostgresConfig {
         
         // Port: TYL_POSTGRES_PORT > PGPORT > default  
         if let Ok(port) = std::env::var("TYL_POSTGRES_PORT") {
-            self.port = port.parse().map_err(|e| ConfigError::environment(format!("Invalid TYL_POSTGRES_PORT: {}", e)))?;
+            self.port = port.parse().map_err(|e| TylError::configuration(format!("Invalid TYL_POSTGRES_PORT: {}", e)))?;
         } else if let Ok(port) = std::env::var("PGPORT") {
-            self.port = port.parse().map_err(|e| ConfigError::environment(format!("Invalid PGPORT: {}", e)))?;
+            self.port = port.parse().map_err(|e| TylError::configuration(format!("Invalid PGPORT: {}", e)))?;
         }
         
         // Database: TYL_POSTGRES_DATABASE > PGDATABASE > default
@@ -483,12 +441,12 @@ impl ConfigPlugin for PostgresConfig {
         
         // Pool size: TYL only (no PostgreSQL standard)
         if let Ok(pool_size) = std::env::var("TYL_POSTGRES_POOL_SIZE") {
-            self.pool_size = pool_size.parse().map_err(|e| ConfigError::environment(format!("Invalid TYL_POSTGRES_POOL_SIZE: {}", e)))?;
+            self.pool_size = pool_size.parse().map_err(|e| TylError::configuration(format!("Invalid TYL_POSTGRES_POOL_SIZE: {}", e)))?;
         }
         
         // Timeout: TYL only
         if let Ok(timeout) = std::env::var("TYL_POSTGRES_TIMEOUT_SECONDS") {
-            self.timeout_seconds = timeout.parse().map_err(|e| ConfigError::environment(format!("Invalid TYL_POSTGRES_TIMEOUT_SECONDS: {}", e)))?;
+            self.timeout_seconds = timeout.parse().map_err(|e| TylError::configuration(format!("Invalid TYL_POSTGRES_TIMEOUT_SECONDS: {}", e)))?;
         }
         
         Ok(())
@@ -496,19 +454,19 @@ impl ConfigPlugin for PostgresConfig {
     
     fn to_yaml_value(&self) -> ConfigResult<serde_yaml::Value> {
         serde_yaml::to_value(self)
-            .map_err(|e| ConfigError::serialization(format!("Failed to serialize PostgresConfig: {}", e)))
+            .map_err(|e| TylError::serialization(format!("Failed to serialize PostgresConfig: {}", e)))
     }
     
     fn from_yaml(&self, yaml_path: &str) -> ConfigResult<Self> {
         let yaml_content = std::fs::read_to_string(yaml_path)
-            .map_err(|e| ConfigError::loading(format!("Failed to read config file: {}", e)))?;
+            .map_err(|e| TylError::configuration(format!("Failed to read config file: {}", e)))?;
         
         let yaml_value: serde_yaml::Value = serde_yaml::from_str(&yaml_content)
-            .map_err(|e| ConfigError::loading(format!("Failed to parse YAML: {}", e)))?;
+            .map_err(|e| TylError::configuration(format!("Failed to parse YAML: {}", e)))?;
         
         if let Some(postgres_section) = yaml_value.get("postgres") {
             let mut config: PostgresConfig = serde_yaml::from_value(postgres_section.clone())
-                .map_err(|e| ConfigError::loading(format!("Failed to parse postgres config: {}", e)))?;
+                .map_err(|e| TylError::configuration(format!("Failed to parse postgres config: {}", e)))?;
             
             // After loading from YAML, merge with environment variables (higher priority)
             config.merge_env()?;
@@ -574,10 +532,10 @@ impl ConfigPlugin for RedisConfig {
     
     fn validate(&self) -> ConfigResult<()> {
         if self.host.is_empty() {
-            return Err(ConfigError::validation("host", "cannot be empty"));
+            return Err(TylError::validation("host", "cannot be empty"));
         }
         if self.pool_size == 0 {
-            return Err(ConfigError::validation("pool_size", "must be greater than 0"));
+            return Err(TylError::validation("pool_size", "must be greater than 0"));
         }
         Ok(())
     }
@@ -610,9 +568,9 @@ impl ConfigPlugin for RedisConfig {
         
         // Port: TYL_REDIS_PORT > REDIS_PORT > default
         if let Ok(port) = std::env::var("TYL_REDIS_PORT") {
-            self.port = port.parse().map_err(|e| ConfigError::environment(format!("Invalid TYL_REDIS_PORT: {}", e)))?;
+            self.port = port.parse().map_err(|e| TylError::configuration(format!("Invalid TYL_REDIS_PORT: {}", e)))?;
         } else if let Ok(port) = std::env::var("REDIS_PORT") {
-            self.port = port.parse().map_err(|e| ConfigError::environment(format!("Invalid REDIS_PORT: {}", e)))?;
+            self.port = port.parse().map_err(|e| TylError::configuration(format!("Invalid REDIS_PORT: {}", e)))?;
         }
         
         // Password: TYL_REDIS_PASSWORD > REDIS_PASSWORD > default
@@ -624,19 +582,19 @@ impl ConfigPlugin for RedisConfig {
         
         // Database: TYL_REDIS_DATABASE > REDIS_DATABASE > default
         if let Ok(database) = std::env::var("TYL_REDIS_DATABASE") {
-            self.database = database.parse().map_err(|e| ConfigError::environment(format!("Invalid TYL_REDIS_DATABASE: {}", e)))?;
+            self.database = database.parse().map_err(|e| TylError::configuration(format!("Invalid TYL_REDIS_DATABASE: {}", e)))?;
         } else if let Ok(database) = std::env::var("REDIS_DATABASE") {
-            self.database = database.parse().map_err(|e| ConfigError::environment(format!("Invalid REDIS_DATABASE: {}", e)))?;
+            self.database = database.parse().map_err(|e| TylError::configuration(format!("Invalid REDIS_DATABASE: {}", e)))?;
         }
         
         // Pool size: TYL only (no Redis standard)
         if let Ok(pool_size) = std::env::var("TYL_REDIS_POOL_SIZE") {
-            self.pool_size = pool_size.parse().map_err(|e| ConfigError::environment(format!("Invalid TYL_REDIS_POOL_SIZE: {}", e)))?;
+            self.pool_size = pool_size.parse().map_err(|e| TylError::configuration(format!("Invalid TYL_REDIS_POOL_SIZE: {}", e)))?;
         }
         
         // Timeout: TYL only
         if let Ok(timeout) = std::env::var("TYL_REDIS_TIMEOUT_SECONDS") {
-            self.timeout_seconds = timeout.parse().map_err(|e| ConfigError::environment(format!("Invalid TYL_REDIS_TIMEOUT_SECONDS: {}", e)))?;
+            self.timeout_seconds = timeout.parse().map_err(|e| TylError::configuration(format!("Invalid TYL_REDIS_TIMEOUT_SECONDS: {}", e)))?;
         }
         
         Ok(())
@@ -644,19 +602,19 @@ impl ConfigPlugin for RedisConfig {
     
     fn to_yaml_value(&self) -> ConfigResult<serde_yaml::Value> {
         serde_yaml::to_value(self)
-            .map_err(|e| ConfigError::serialization(format!("Failed to serialize RedisConfig: {}", e)))
+            .map_err(|e| TylError::serialization(format!("Failed to serialize RedisConfig: {}", e)))
     }
     
     fn from_yaml(&self, yaml_path: &str) -> ConfigResult<Self> {
         let yaml_content = std::fs::read_to_string(yaml_path)
-            .map_err(|e| ConfigError::loading(format!("Failed to read config file: {}", e)))?;
+            .map_err(|e| TylError::configuration(format!("Failed to read config file: {}", e)))?;
         
         let yaml_value: serde_yaml::Value = serde_yaml::from_str(&yaml_content)
-            .map_err(|e| ConfigError::loading(format!("Failed to parse YAML: {}", e)))?;
+            .map_err(|e| TylError::configuration(format!("Failed to parse YAML: {}", e)))?;
         
         if let Some(redis_section) = yaml_value.get("redis") {
             let mut config: RedisConfig = serde_yaml::from_value(redis_section.clone())
-                .map_err(|e| ConfigError::loading(format!("Failed to parse redis config: {}", e)))?;
+                .map_err(|e| TylError::configuration(format!("Failed to parse redis config: {}", e)))?;
             
             // After loading from YAML, merge with environment variables (higher priority)
             config.merge_env()?;
@@ -928,11 +886,11 @@ mod tests {
 
     #[test]
     fn test_error_types() {
-        let validation_error = ConfigError::validation("test_field", "test message");
+        let validation_error = TylError::validation("test_field", "test message");
         assert!(validation_error.to_string().contains("test_field"));
         assert!(validation_error.to_string().contains("test message"));
         
-        let loading_error = ConfigError::loading("failed to load");
+        let loading_error = TylError::configuration("failed to load");
         assert!(loading_error.to_string().contains("failed to load"));
     }
 
@@ -968,7 +926,7 @@ mod tests {
             fn env_prefix(&self) -> &'static str { "CUSTOM" }
             fn validate(&self) -> ConfigResult<()> {
                 if self.api_key.is_empty() {
-                    return Err(ConfigError::validation("api_key", "cannot be empty"));
+                    return Err(TylError::validation("api_key", "cannot be empty"));
                 }
                 Ok(())
             }
@@ -983,7 +941,7 @@ mod tests {
             }
             fn to_yaml_value(&self) -> ConfigResult<serde_yaml::Value> {
                 serde_yaml::to_value(self)
-                    .map_err(|e| ConfigError::serialization(format!("Failed to serialize: {}", e)))
+                    .map_err(|e| TylError::serialization(format!("Failed to serialize: {}", e)))
             }
             fn from_yaml(&self, _yaml_path: &str) -> ConfigResult<Self> {
                 Ok(Self::default())

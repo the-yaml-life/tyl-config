@@ -1,4 +1,5 @@
-use tyl_config::{ConfigManager, PostgresConfig, RedisConfig, ConfigPlugin, ConfigError};
+use tyl_config::{ConfigManager, PostgresConfig, RedisConfig, ConfigPlugin};
+use tyl_errors::TylError;
 
 #[test]
 fn test_end_to_end_configuration() {
@@ -79,7 +80,7 @@ fn test_validation_integration() {
     assert!(result.is_err());
     
     let error = result.unwrap_err();
-    assert!(matches!(error, ConfigError::Validation { .. }));
+    assert!(matches!(error, TylError::Validation { .. }));
 }
 
 #[test]
