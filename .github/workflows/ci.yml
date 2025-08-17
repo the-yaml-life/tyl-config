@@ -46,7 +46,7 @@ jobs:
     - name: Test examples
       run: |
         cargo run --example basic_usage
-        # Add more examples as needed
+        cargo run --example yaml_config
 
   security:
     name: Security Audit

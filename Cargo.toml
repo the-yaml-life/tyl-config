@@ -1,21 +1,22 @@
 [package]
-name = "tyl-{module-name}"
+name = "tyl-config"
 version = "0.1.0"
 edition = "2021"
 authors = ["TYL Framework Team"]
 license = "AGPL-3.0"
-repository = "https://github.com/the-yaml-life/tyl-{module-name}"
-description = "{Replace with module description}"
-homepage = "https://github.com/the-yaml-life/tyl-{module-name}"
-documentation = "https://docs.rs/tyl-{module-name}"
+repository = "https://github.com/the-yaml-life/tyl-config"
+description = "Simplified but extensible configuration management for TYL framework microservices"
+homepage = "https://github.com/the-yaml-life/tyl-config"
+documentation = "https://docs.rs/tyl-config"
 readme = "README.md"
-keywords = ["{module-keywords}", "hexagonal-architecture", "rust", "tyl-framework"]
-categories = ["development-tools", "rust-patterns"]
+keywords = ["config", "microservices", "hexagonal-architecture", "rust", "tyl-framework"]
+categories = ["development-tools", "rust-patterns", "config"]
 
 [dependencies]
 # Common TYL dependencies - adjust as needed
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 thiserror = "1.0"
 uuid = { version = "1.0", features = ["v4"] }
 

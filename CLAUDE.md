@@ -1,42 +1,50 @@
-# CLAUDE.md - tyl-{module-name}
+# CLAUDE.md - tyl-config
 
 ## 📋 **Module Context**
 
-**tyl-{module-name}** is the {replace with module function} module for the TYL framework.
+**tyl-config** is the configuration management module for the TYL framework with hierarchical loading, environment variable precedence, and YAML generation.
 
 ## 🏗️ **Architecture**
 
 ### **Port (Interface)**
 ```rust
-trait {MainTrait} {
-    fn operation(&self, input: &str) -> {Module}Result<String>;
+trait ConfigPlugin {
+    fn name(&self) -> &'static str;
+    fn env_prefix(&self) -> &'static str;
+    fn validate(&self) -> ConfigResult<()>;
+    fn merge_env(&mut self) -> ConfigResult<()>;
+    fn to_yaml_value(&self) -> ConfigResult<serde_yaml::Value>;
+    fn from_yaml(value: &serde_yaml::Value) -> ConfigResult<Self> where Self: Sized;
 }
 ```
 
 ### **Adapters (Implementations)**
-- `{BasicAdapter}` - Simple implementation for basic use cases
-- Add more adapters as needed
+- `PostgresConfig` - PostgreSQL database configuration
+- `RedisConfig` - Redis cache configuration
+- `ConfigManager` - Main configuration coordinator
 
 ### **Core Types**
-- `{MainType}` - Main configuration/data type
-- `{Module}Error` - Error types with thiserror
-- `{Module}Result<T>` - Result type alias
+- `ConfigManager` - Main configuration manager
+- `ConfigError` - Error types with thiserror
+- `ConfigResult<T>` - Result type alias
 
 ## 🧪 **Testing**
 
 ```bash
-cargo test -p tyl-{module-name}
-cargo test --doc -p tyl-{module-name}
-cargo run --example basic_usage -p tyl-{module-name}
+cargo test -p tyl-config
+cargo test --doc -p tyl-config
+cargo run --example basic_usage -p tyl-config
+cargo run --example yaml_config -p tyl-config
 ```
 
 ## 📂 **File Structure**
 
 ```
-tyl-{module-name}/
+tyl-config/
 ├── src/lib.rs                 # Core implementation
 ├── examples/
-│   └── basic_usage.rs         # Basic usage example
+│   ├── basic_usage.rs         # Basic usage example
+│   └── yaml_config.rs         # YAML generation and loading
 ├── tests/
 │   └── integration_tests.rs   # Integration tests
 ├── README.md                  # Main documentation
@@ -48,23 +56,50 @@ tyl-{module-name}/
 
 ### **Basic Usage**
 ```rust
-use tyl_{module_name}::{MainTrait, BasicAdapter, MainType};
+use tyl_config::{ConfigManager, PostgresConfig, RedisConfig};
 
-let config = MainType::new("my-config");
-let adapter = BasicAdapter::new(config);
-let result = adapter.operation("input").unwrap();
+let config = ConfigManager::builder()
+    .with_postgres(PostgresConfig::default())
+    .with_redis(RedisConfig::default())
+    .build();
+
+// Access configuration
+if let Some(pg) = config.postgres() {
+    println!("Database URL: {}", pg.database_url());
+}
 ```
 
-### **Custom Implementation**
+### **Custom Configuration Plugin**
 ```rust
-struct MyCustomAdapter {
-    // Custom fields
+use tyl_config::{ConfigPlugin, ConfigResult};
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MyServiceConfig {
+    pub host: String,
+    pub port: u16,
 }
 
-impl {MainTrait} for MyCustomAdapter {
-    fn operation(&self, input: &str) -> {Module}Result<String> {
-        // Custom implementation
-        Ok(format!("Custom: {}", input))
+impl ConfigPlugin for MyServiceConfig {
+    fn name(&self) -> &'static str { "myservice" }
+    fn env_prefix(&self) -> &'static str { "TYL_MYSERVICE" }
+    
+    fn validate(&self) -> ConfigResult<()> {
+        // Validation logic
+        Ok(())
+    }
+    
+    fn merge_env(&mut self) -> ConfigResult<()> {
+        // Environment variable merging
+        Ok(())
+    }
+    
+    fn to_yaml_value(&self) -> ConfigResult<serde_yaml::Value> {
+        Ok(serde_yaml::to_value(self)?)
+    }
+    
+    fn from_yaml(value: &serde_yaml::Value) -> ConfigResult<Self> {
+        Ok(serde_yaml::from_value(value.clone())?)
     }
 }
 ```
@@ -72,35 +107,37 @@ impl {MainTrait} for MyCustomAdapter {
 ## 🛠️ **Useful Commands**
 
 ```bash
-cargo clippy -p tyl-{module-name}
-cargo fmt -p tyl-{module-name}  
-cargo doc --no-deps -p tyl-{module-name} --open
-cargo test -p tyl-{module-name} --verbose
+cargo clippy -p tyl-config
+cargo fmt -p tyl-config  
+cargo doc --no-deps -p tyl-config --open
+cargo test -p tyl-config --verbose
 ```
 
 ## 📦 **Dependencies**
 
 ### **Runtime**
-- `serde` - Serialization support
-- `serde_json` - JSON handling
-- `thiserror` - Error handling
+- `serde` - Serialization support with derive features
+- `serde_yaml` - YAML file handling and generation
+- `thiserror` - Error handling and propagation
 - `uuid` - Unique identifier generation
 
 ### **Development**
 - Standard Rust testing framework
+- Temporary file handling for tests
 
 ## 🎯 **Design Principles**
 
-1. **Hexagonal Architecture** - Clean separation of concerns
-2. **Trait-based Extensibility** - Easy to add new implementations
-3. **Error Handling** - Comprehensive error types with context
-4. **Serialization** - First-class serde support
-5. **Testing** - Comprehensive test coverage
+1. **Configuration Hierarchy** - Environment variables > YAML > defaults
+2. **TYL Prefix Priority** - TYL_* variables take precedence over standard ones
+3. **Plugin Architecture** - Extensible via ConfigPlugin trait
+4. **YAML Generation** - Automatic template generation for documentation
+5. **Validation** - Built-in validation with custom error messages
 
 ## ⚠️ **Known Limitations**
 
-- {Add any current limitations}
-- {Add any planned improvements}
+- Currently supports PostgreSQL and Redis configurations
+- YAML generation includes all plugins, even unused ones
+- Environment variable parsing is string-based
 
 ## 📝 **Notes for Contributors**
 
