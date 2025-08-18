@@ -854,6 +854,14 @@ mod tests {
 
     #[test]
     fn test_standard_postgres_environment_variables() {
+        let _lock = ENV_TEST_MUTEX.lock().unwrap();
+
+        // Store original values to restore later
+        let original_pghost = std::env::var("PGHOST").ok();
+        let original_pgport = std::env::var("PGPORT").ok();
+        let original_pgdatabase = std::env::var("PGDATABASE").ok();
+        let original_pguser = std::env::var("PGUSER").ok();
+
         // Test standard PostgreSQL environment variables
         std::env::set_var("PGHOST", "pg-host");
         std::env::set_var("PGPORT", "5434");
@@ -868,11 +876,24 @@ mod tests {
         assert_eq!(config.database, "test_db");
         assert_eq!(config.username, "test_user");
 
-        // Cleanup
+        // Restore original environment variables
         std::env::remove_var("PGHOST");
         std::env::remove_var("PGPORT");
         std::env::remove_var("PGDATABASE");
         std::env::remove_var("PGUSER");
+        
+        if let Some(host) = original_pghost {
+            std::env::set_var("PGHOST", host);
+        }
+        if let Some(port) = original_pgport {
+            std::env::set_var("PGPORT", port);
+        }
+        if let Some(database) = original_pgdatabase {
+            std::env::set_var("PGDATABASE", database);
+        }
+        if let Some(user) = original_pguser {
+            std::env::set_var("PGUSER", user);
+        }
     }
 
     #[test]
