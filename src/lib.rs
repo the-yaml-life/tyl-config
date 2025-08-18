@@ -53,7 +53,7 @@
 //!         }
 //!         Ok(())
 //!     }
-//!     fn from_env(&self) -> tyl_config::ConfigResult<Self> {
+//!     fn load_from_env(&self) -> tyl_config::ConfigResult<Self> {
 //!         let mut config = Self::default();
 //!         config.merge_env()?;
 //!         Ok(config)
@@ -97,7 +97,7 @@ pub trait ConfigPlugin: std::fmt::Debug + Send + Sync {
     fn validate(&self) -> ConfigResult<()>;
 
     /// Load configuration from environment variables
-    fn from_env(&self) -> ConfigResult<Self>
+    fn load_from_env(&self) -> ConfigResult<Self>
     where
         Self: Sized;
 
@@ -168,7 +168,7 @@ impl ConfigManager {
             config_map.insert(
                 serde_yaml::Value::String(postgres.name().to_string()),
                 serde_yaml::to_value(postgres).map_err(|e| {
-                    TylError::serialization(format!("Failed to serialize postgres config: {}", e))
+                    TylError::serialization(format!("Failed to serialize postgres config: {e}"))
                 })?,
             );
         }
@@ -177,13 +177,13 @@ impl ConfigManager {
             config_map.insert(
                 serde_yaml::Value::String(redis.name().to_string()),
                 serde_yaml::to_value(redis).map_err(|e| {
-                    TylError::serialization(format!("Failed to serialize redis config: {}", e))
+                    TylError::serialization(format!("Failed to serialize redis config: {e}"))
                 })?,
             );
         }
 
         let config_yaml = serde_yaml::to_string(&serde_yaml::Value::Mapping(config_map))
-            .map_err(|e| TylError::serialization(format!("Failed to serialize YAML: {}", e)))?;
+            .map_err(|e| TylError::serialization(format!("Failed to serialize YAML: {e}")))?;
 
         yaml_content.push_str(&config_yaml);
 
@@ -196,7 +196,7 @@ impl ConfigManager {
         yaml_content.push_str("#   url: redis://password@host:port/database\n");
 
         std::fs::write(output_path, yaml_content)
-            .map_err(|e| TylError::configuration(format!("Failed to write config file: {}", e)))?;
+            .map_err(|e| TylError::configuration(format!("Failed to write config file: {e}")))?;
 
         Ok(())
     }
@@ -204,34 +204,30 @@ impl ConfigManager {
     /// Load configurations from YAML file (lowest priority, before defaults)
     pub fn from_yaml_file(yaml_path: &str) -> ConfigResult<Self> {
         let yaml_content = std::fs::read_to_string(yaml_path).map_err(|e| {
-            TylError::configuration(format!("Failed to read config file {}: {}", yaml_path, e))
+            TylError::configuration(format!("Failed to read config file {yaml_path}: {e}"))
         })?;
 
         let yaml_value: serde_yaml::Value = serde_yaml::from_str(&yaml_content)
-            .map_err(|e| TylError::configuration(format!("Failed to parse YAML: {}", e)))?;
+            .map_err(|e| TylError::configuration(format!("Failed to parse YAML: {e}")))?;
 
         let mut builder = ConfigManagerBuilder::new();
 
         if let Some(yaml_map) = yaml_value.as_mapping() {
             // Load postgres config if present
-            if let Some(postgres_section) =
-                yaml_map.get(&serde_yaml::Value::String("postgres".to_string()))
-            {
+            if let Some(postgres_section) = yaml_map.get("postgres") {
                 let mut postgres: PostgresConfig = serde_yaml::from_value(postgres_section.clone())
                     .map_err(|e| {
-                        TylError::configuration(format!("Failed to parse postgres config: {}", e))
+                        TylError::configuration(format!("Failed to parse postgres config: {e}"))
                     })?;
                 postgres.merge_env()?;
                 builder = builder.with_postgres(postgres);
             }
 
             // Load redis config if present
-            if let Some(redis_section) =
-                yaml_map.get(&serde_yaml::Value::String("redis".to_string()))
-            {
+            if let Some(redis_section) = yaml_map.get("redis") {
                 let mut redis: RedisConfig = serde_yaml::from_value(redis_section.clone())
                     .map_err(|e| {
-                        TylError::configuration(format!("Failed to parse redis config: {}", e))
+                        TylError::configuration(format!("Failed to parse redis config: {e}"))
                     })?;
                 redis.merge_env()?;
                 builder = builder.with_redis(redis);
@@ -246,6 +242,12 @@ impl ConfigManager {
 pub struct ConfigManagerBuilder {
     postgres: Option<PostgresConfig>,
     redis: Option<RedisConfig>,
+}
+
+impl Default for ConfigManagerBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ConfigManagerBuilder {
@@ -274,24 +276,18 @@ impl ConfigManagerBuilder {
     pub fn with_yaml_file(mut self, yaml_path: &str) -> ConfigResult<Self> {
         // Try to read the YAML file
         if std::path::Path::new(yaml_path).exists() {
-            let yaml_content = std::fs::read_to_string(yaml_path).map_err(|e| {
-                TylError::configuration(format!("Failed to read config file: {}", e))
-            })?;
+            let yaml_content = std::fs::read_to_string(yaml_path)
+                .map_err(|e| TylError::configuration(format!("Failed to read config file: {e}")))?;
 
             let yaml_value: serde_yaml::Value = serde_yaml::from_str(&yaml_content)
-                .map_err(|e| TylError::configuration(format!("Failed to parse YAML: {}", e)))?;
+                .map_err(|e| TylError::configuration(format!("Failed to parse YAML: {e}")))?;
 
             if let Some(yaml_map) = yaml_value.as_mapping() {
                 // Load postgres config if present in YAML
-                if let Some(postgres_section) =
-                    yaml_map.get(&serde_yaml::Value::String("postgres".to_string()))
-                {
+                if let Some(postgres_section) = yaml_map.get("postgres") {
                     let mut postgres: PostgresConfig =
                         serde_yaml::from_value(postgres_section.clone()).map_err(|e| {
-                            TylError::configuration(format!(
-                                "Failed to parse postgres config: {}",
-                                e
-                            ))
+                            TylError::configuration(format!("Failed to parse postgres config: {e}"))
                         })?;
                     // Merge environment variables after loading from YAML
                     postgres.merge_env()?;
@@ -299,12 +295,10 @@ impl ConfigManagerBuilder {
                 }
 
                 // Load redis config if present in YAML
-                if let Some(redis_section) =
-                    yaml_map.get(&serde_yaml::Value::String("redis".to_string()))
-                {
+                if let Some(redis_section) = yaml_map.get("redis") {
                     let mut redis: RedisConfig = serde_yaml::from_value(redis_section.clone())
                         .map_err(|e| {
-                            TylError::configuration(format!("Failed to parse redis config: {}", e))
+                            TylError::configuration(format!("Failed to parse redis config: {e}"))
                         })?;
                     // Merge environment variables after loading from YAML
                     redis.merge_env()?;
@@ -406,7 +400,7 @@ impl ConfigPlugin for PostgresConfig {
         Ok(())
     }
 
-    fn from_env(&self) -> ConfigResult<Self> {
+    fn load_from_env(&self) -> ConfigResult<Self> {
         let mut config = Self::default();
         config.merge_env()?;
         Ok(config)
@@ -436,13 +430,13 @@ impl ConfigPlugin for PostgresConfig {
 
         // Port: TYL_POSTGRES_PORT > PGPORT > default
         if let Ok(port) = std::env::var("TYL_POSTGRES_PORT") {
-            self.port = port.parse().map_err(|e| {
-                TylError::configuration(format!("Invalid TYL_POSTGRES_PORT: {}", e))
-            })?;
+            self.port = port
+                .parse()
+                .map_err(|e| TylError::configuration(format!("Invalid TYL_POSTGRES_PORT: {e}")))?;
         } else if let Ok(port) = std::env::var("PGPORT") {
             self.port = port
                 .parse()
-                .map_err(|e| TylError::configuration(format!("Invalid PGPORT: {}", e)))?;
+                .map_err(|e| TylError::configuration(format!("Invalid PGPORT: {e}")))?;
         }
 
         // Database: TYL_POSTGRES_DATABASE > PGDATABASE > default
@@ -469,14 +463,14 @@ impl ConfigPlugin for PostgresConfig {
         // Pool size: TYL only (no PostgreSQL standard)
         if let Ok(pool_size) = std::env::var("TYL_POSTGRES_POOL_SIZE") {
             self.pool_size = pool_size.parse().map_err(|e| {
-                TylError::configuration(format!("Invalid TYL_POSTGRES_POOL_SIZE: {}", e))
+                TylError::configuration(format!("Invalid TYL_POSTGRES_POOL_SIZE: {e}"))
             })?;
         }
 
         // Timeout: TYL only
         if let Ok(timeout) = std::env::var("TYL_POSTGRES_TIMEOUT_SECONDS") {
             self.timeout_seconds = timeout.parse().map_err(|e| {
-                TylError::configuration(format!("Invalid TYL_POSTGRES_TIMEOUT_SECONDS: {}", e))
+                TylError::configuration(format!("Invalid TYL_POSTGRES_TIMEOUT_SECONDS: {e}"))
             })?;
         }
 
@@ -544,7 +538,7 @@ impl ConfigPlugin for RedisConfig {
         Ok(())
     }
 
-    fn from_env(&self) -> ConfigResult<Self> {
+    fn load_from_env(&self) -> ConfigResult<Self> {
         let mut config = Self::default();
         config.merge_env()?;
         Ok(config)
@@ -574,11 +568,11 @@ impl ConfigPlugin for RedisConfig {
         if let Ok(port) = std::env::var("TYL_REDIS_PORT") {
             self.port = port
                 .parse()
-                .map_err(|e| TylError::configuration(format!("Invalid TYL_REDIS_PORT: {}", e)))?;
+                .map_err(|e| TylError::configuration(format!("Invalid TYL_REDIS_PORT: {e}")))?;
         } else if let Ok(port) = std::env::var("REDIS_PORT") {
             self.port = port
                 .parse()
-                .map_err(|e| TylError::configuration(format!("Invalid REDIS_PORT: {}", e)))?;
+                .map_err(|e| TylError::configuration(format!("Invalid REDIS_PORT: {e}")))?;
         }
 
         // Password: TYL_REDIS_PASSWORD > REDIS_PASSWORD > default
@@ -590,26 +584,26 @@ impl ConfigPlugin for RedisConfig {
 
         // Database: TYL_REDIS_DATABASE > REDIS_DATABASE > default
         if let Ok(database) = std::env::var("TYL_REDIS_DATABASE") {
-            self.database = database.parse().map_err(|e| {
-                TylError::configuration(format!("Invalid TYL_REDIS_DATABASE: {}", e))
-            })?;
+            self.database = database
+                .parse()
+                .map_err(|e| TylError::configuration(format!("Invalid TYL_REDIS_DATABASE: {e}")))?;
         } else if let Ok(database) = std::env::var("REDIS_DATABASE") {
             self.database = database
                 .parse()
-                .map_err(|e| TylError::configuration(format!("Invalid REDIS_DATABASE: {}", e)))?;
+                .map_err(|e| TylError::configuration(format!("Invalid REDIS_DATABASE: {e}")))?;
         }
 
         // Pool size: TYL only (no Redis standard)
         if let Ok(pool_size) = std::env::var("TYL_REDIS_POOL_SIZE") {
             self.pool_size = pool_size.parse().map_err(|e| {
-                TylError::configuration(format!("Invalid TYL_REDIS_POOL_SIZE: {}", e))
+                TylError::configuration(format!("Invalid TYL_REDIS_POOL_SIZE: {e}"))
             })?;
         }
 
         // Timeout: TYL only
         if let Ok(timeout) = std::env::var("TYL_REDIS_TIMEOUT_SECONDS") {
             self.timeout_seconds = timeout.parse().map_err(|e| {
-                TylError::configuration(format!("Invalid TYL_REDIS_TIMEOUT_SECONDS: {}", e))
+                TylError::configuration(format!("Invalid TYL_REDIS_TIMEOUT_SECONDS: {e}"))
             })?;
         }
 
@@ -638,6 +632,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+    
+    // Shared mutex for all environment variable tests to prevent races
+    static ENV_TEST_MUTEX: Mutex<()> = Mutex::new(());
     use super::*;
 
     #[test]
@@ -692,36 +690,46 @@ mod tests {
     #[test]
     fn test_postgres_validation_failures() {
         // Test empty host
-        let mut invalid_config = PostgresConfig::default();
-        invalid_config.host = "".to_string();
+        let invalid_config = PostgresConfig {
+            host: "".to_string(),
+            ..PostgresConfig::default()
+        };
         let result = invalid_config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("host"));
 
         // Test empty database
-        let mut invalid_config = PostgresConfig::default();
-        invalid_config.database = "".to_string();
+        let invalid_config = PostgresConfig {
+            database: "".to_string(),
+            ..PostgresConfig::default()
+        };
         let result = invalid_config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("database"));
 
         // Test empty username
-        let mut invalid_config = PostgresConfig::default();
-        invalid_config.username = "".to_string();
+        let invalid_config = PostgresConfig {
+            username: "".to_string(),
+            ..PostgresConfig::default()
+        };
         let result = invalid_config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("username"));
 
         // Test empty password
-        let mut invalid_config = PostgresConfig::default();
-        invalid_config.password = "".to_string();
+        let invalid_config = PostgresConfig {
+            password: "".to_string(),
+            ..PostgresConfig::default()
+        };
         let result = invalid_config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("password"));
 
         // Test zero pool size
-        let mut invalid_config = PostgresConfig::default();
-        invalid_config.pool_size = 0;
+        let invalid_config = PostgresConfig {
+            pool_size: 0,
+            ..PostgresConfig::default()
+        };
         let result = invalid_config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("pool_size"));
@@ -730,15 +738,19 @@ mod tests {
     #[test]
     fn test_redis_validation_failures() {
         // Test empty host
-        let mut invalid_config = RedisConfig::default();
-        invalid_config.host = "".to_string();
+        let invalid_config = RedisConfig {
+            host: "".to_string(),
+            ..RedisConfig::default()
+        };
         let result = invalid_config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("host"));
 
         // Test zero pool size
-        let mut invalid_config = RedisConfig::default();
-        invalid_config.pool_size = 0;
+        let invalid_config = RedisConfig {
+            pool_size: 0,
+            ..RedisConfig::default()
+        };
         let result = invalid_config.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("pool_size"));
@@ -813,6 +825,12 @@ mod tests {
 
     #[test]
     fn test_environment_variable_loading() {
+        let _lock = ENV_TEST_MUTEX.lock().unwrap();
+        
+        // Store original values to restore later
+        let original_host = std::env::var("TYL_POSTGRES_HOST").ok();
+        let original_port = std::env::var("TYL_POSTGRES_PORT").ok();
+        
         // Test TYL-prefixed environment variable override
         std::env::set_var("TYL_POSTGRES_HOST", "test-host");
         std::env::set_var("TYL_POSTGRES_PORT", "5433");
@@ -823,9 +841,15 @@ mod tests {
         assert_eq!(config.host, "test-host");
         assert_eq!(config.port, 5433);
 
-        // Cleanup
+        // Restore original environment variables
         std::env::remove_var("TYL_POSTGRES_HOST");
         std::env::remove_var("TYL_POSTGRES_PORT");
+        if let Some(host) = original_host {
+            std::env::set_var("TYL_POSTGRES_HOST", host);
+        }
+        if let Some(port) = original_port {
+            std::env::set_var("TYL_POSTGRES_PORT", port);
+        }
     }
 
     #[test]
@@ -945,7 +969,7 @@ mod tests {
                 }
                 Ok(())
             }
-            fn from_env(&self) -> ConfigResult<Self> {
+            fn load_from_env(&self) -> ConfigResult<Self> {
                 Ok(Self::default())
             }
             fn merge_env(&mut self) -> ConfigResult<()> {
@@ -985,6 +1009,12 @@ mod tests {
 
     #[test]
     fn test_yaml_loading() {
+        let _lock = ENV_TEST_MUTEX.lock().unwrap();
+
+        // Store original values to restore later
+        let original_host = std::env::var("TYL_POSTGRES_HOST").ok();
+        let original_pghost = std::env::var("PGHOST").ok();
+
         // Ensure no env vars are interfering
         std::env::remove_var("TYL_POSTGRES_HOST");
         std::env::remove_var("PGHOST");
@@ -1029,12 +1059,24 @@ redis:
         assert_eq!(redis.port, 6380);
         assert_eq!(redis.database, 1);
 
-        // Cleanup
+        // Restore original environment variables
+        if let Some(host) = original_host {
+            std::env::set_var("TYL_POSTGRES_HOST", host);
+        }
+        if let Some(pghost) = original_pghost {
+            std::env::set_var("PGHOST", pghost);
+        }
         let _ = std::fs::remove_file(temp_path);
     }
 
     #[test]
     fn test_yaml_environment_precedence() {
+        let _lock = ENV_TEST_MUTEX.lock().unwrap();
+
+        // Store original values to restore later
+        let original_host = std::env::var("TYL_POSTGRES_HOST").ok();
+        let original_pghost = std::env::var("PGHOST").ok();
+
         // Ensure no env vars are interfering initially
         std::env::remove_var("TYL_POSTGRES_HOST");
         std::env::remove_var("PGHOST");
@@ -1069,8 +1111,14 @@ postgres:
         // YAML values should be used where no env var exists
         assert_eq!(postgres.username, "yaml-user");
 
-        // Cleanup
+        // Restore original environment variables
         std::env::remove_var("TYL_POSTGRES_HOST");
+        if let Some(host) = original_host {
+            std::env::set_var("TYL_POSTGRES_HOST", host);
+        }
+        if let Some(pghost) = original_pghost {
+            std::env::set_var("PGHOST", pghost);
+        }
         let _ = std::fs::remove_file(temp_path);
     }
 }
