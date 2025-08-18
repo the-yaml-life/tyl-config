@@ -632,6 +632,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+    
+    // Shared mutex for all environment variable tests to prevent races
+    static ENV_TEST_MUTEX: Mutex<()> = Mutex::new(());
     use super::*;
 
     #[test]
@@ -821,6 +825,12 @@ mod tests {
 
     #[test]
     fn test_environment_variable_loading() {
+        let _lock = ENV_TEST_MUTEX.lock().unwrap();
+        
+        // Store original values to restore later
+        let original_host = std::env::var("TYL_POSTGRES_HOST").ok();
+        let original_port = std::env::var("TYL_POSTGRES_PORT").ok();
+        
         // Test TYL-prefixed environment variable override
         std::env::set_var("TYL_POSTGRES_HOST", "test-host");
         std::env::set_var("TYL_POSTGRES_PORT", "5433");
@@ -831,9 +841,15 @@ mod tests {
         assert_eq!(config.host, "test-host");
         assert_eq!(config.port, 5433);
 
-        // Cleanup
+        // Restore original environment variables
         std::env::remove_var("TYL_POSTGRES_HOST");
         std::env::remove_var("TYL_POSTGRES_PORT");
+        if let Some(host) = original_host {
+            std::env::set_var("TYL_POSTGRES_HOST", host);
+        }
+        if let Some(port) = original_port {
+            std::env::set_var("TYL_POSTGRES_PORT", port);
+        }
     }
 
     #[test]
@@ -993,6 +1009,12 @@ mod tests {
 
     #[test]
     fn test_yaml_loading() {
+        let _lock = ENV_TEST_MUTEX.lock().unwrap();
+
+        // Store original values to restore later
+        let original_host = std::env::var("TYL_POSTGRES_HOST").ok();
+        let original_pghost = std::env::var("PGHOST").ok();
+
         // Ensure no env vars are interfering
         std::env::remove_var("TYL_POSTGRES_HOST");
         std::env::remove_var("PGHOST");
@@ -1037,12 +1059,24 @@ redis:
         assert_eq!(redis.port, 6380);
         assert_eq!(redis.database, 1);
 
-        // Cleanup
+        // Restore original environment variables
+        if let Some(host) = original_host {
+            std::env::set_var("TYL_POSTGRES_HOST", host);
+        }
+        if let Some(pghost) = original_pghost {
+            std::env::set_var("PGHOST", pghost);
+        }
         let _ = std::fs::remove_file(temp_path);
     }
 
     #[test]
     fn test_yaml_environment_precedence() {
+        let _lock = ENV_TEST_MUTEX.lock().unwrap();
+
+        // Store original values to restore later
+        let original_host = std::env::var("TYL_POSTGRES_HOST").ok();
+        let original_pghost = std::env::var("PGHOST").ok();
+
         // Ensure no env vars are interfering initially
         std::env::remove_var("TYL_POSTGRES_HOST");
         std::env::remove_var("PGHOST");
@@ -1077,8 +1111,14 @@ postgres:
         // YAML values should be used where no env var exists
         assert_eq!(postgres.username, "yaml-user");
 
-        // Cleanup
+        // Restore original environment variables
         std::env::remove_var("TYL_POSTGRES_HOST");
+        if let Some(host) = original_host {
+            std::env::set_var("TYL_POSTGRES_HOST", host);
+        }
+        if let Some(pghost) = original_pghost {
+            std::env::set_var("PGHOST", pghost);
+        }
         let _ = std::fs::remove_file(temp_path);
     }
 }
