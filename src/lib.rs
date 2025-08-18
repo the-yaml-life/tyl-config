@@ -633,7 +633,7 @@ where
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
-    
+
     // Shared mutex for all environment variable tests to prevent races
     static ENV_TEST_MUTEX: Mutex<()> = Mutex::new(());
     use super::*;
@@ -826,11 +826,11 @@ mod tests {
     #[test]
     fn test_environment_variable_loading() {
         let _lock = ENV_TEST_MUTEX.lock().unwrap();
-        
+
         // Store original values to restore later
         let original_host = std::env::var("TYL_POSTGRES_HOST").ok();
         let original_port = std::env::var("TYL_POSTGRES_PORT").ok();
-        
+
         // Test TYL-prefixed environment variable override
         std::env::set_var("TYL_POSTGRES_HOST", "test-host");
         std::env::set_var("TYL_POSTGRES_PORT", "5433");
