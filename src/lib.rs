@@ -758,7 +758,13 @@ mod tests {
 
     #[test]
     fn test_config_manager_validation_propagation() {
+        let _lock = ENV_TEST_MUTEX.lock().unwrap();
+
         // Test that ConfigManager propagates validation errors
+
+        // Store original values to restore later
+        let original_tyl_host = std::env::var("TYL_POSTGRES_HOST").ok();
+        let original_pghost = std::env::var("PGHOST").ok();
 
         // Clean up any environment variables that could interfere
         std::env::remove_var("TYL_POSTGRES_HOST");
@@ -774,6 +780,14 @@ mod tests {
         let result = manager.validate();
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("host"));
+
+        // Restore original environment variables
+        if let Some(host) = original_tyl_host {
+            std::env::set_var("TYL_POSTGRES_HOST", host);
+        }
+        if let Some(pghost) = original_pghost {
+            std::env::set_var("PGHOST", pghost);
+        }
     }
 
     #[test]
@@ -881,7 +895,7 @@ mod tests {
         std::env::remove_var("PGPORT");
         std::env::remove_var("PGDATABASE");
         std::env::remove_var("PGUSER");
-        
+
         if let Some(host) = original_pghost {
             std::env::set_var("PGHOST", host);
         }
